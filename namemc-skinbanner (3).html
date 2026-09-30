@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NameMC Skinbanner</title>
+<style>
+:root{--bg:#14181c;--card:#1d2329;--line:#333c45;--fg:#e8eef2;--mut:#93a0ab;--acc:#4ee0d0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 "Trebuchet MS",system-ui,sans-serif}
+main{max-width:780px;margin:auto;padding:28px 16px 60px}
+h1{font-size:30px;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin:14px 0}
+button,select{font:inherit}
+button{background:var(--acc);color:#052421;border:0;border-radius:4px;padding:8px 14px;font-weight:700;cursor:pointer}
+button.g{background:#27303a;color:var(--fg);border:1px solid var(--line)}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+select{background:#27303a;color:var(--fg);border:1px solid var(--line);border-radius:4px;padding:6px}
+.mut{color:var(--mut);font-size:13px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+canvas{image-rendering:pixelated}
+#capes{display:flex;gap:8px;flex-wrap:wrap}
+.cape{border:2px solid transparent;border-radius:4px;cursor:pointer;background:#14181c;padding:2px;width:48px;height:68px}
+.cape.on{border-color:var(--acc)}
+.cape canvas{width:100%;height:100%}
+#prev{width:100%;height:auto;border:1px solid var(--line);background:repeating-conic-gradient(#232b33 0 25%,#14181c 0 50%) 0 0/16px 16px}
+#skins{display:grid;grid-template-columns:repeat(9,38px);gap:6px}
+.you{width:38px;height:38px;border:1px dashed var(--line);font-size:9px;line-height:1.1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--mut)}
+#skins canvas{width:38px;height:38px;border:1px solid var(--line);cursor:pointer;background:#14181c}
+.err{color:#ff7b72}
+a{color:var(--acc)}
+</style>
+</head>
+<body>
+<main>
+<h1>NameMC Skinbanner</h1>
+<p class="mut">Turn any image into 26 skins. Each skin's face is one tile, so your NameMC skin list shows the whole picture.</p>
+
+<section class="card">
+  <h2>1. Sign in with Microsoft</h2>
+  <div class="row"><button id="login">Sign in with Microsoft</button><span id="status" class="mut">Not signed in. You can still build and download the skins without signing in.</span></div>
+  <label class="row mut"><input type="checkbox" id="opt"> Also add my Microsoft email to the mailing list</label>
+  <span id="sub" class="mut"></span>
+</section>
+
+<section class="card">
+  <h2>2. Pick your image</h2>
+  <div class="row"><label>Upload an image: <input type="file" id="file" accept="image/*"></label></div>
+  <p class="mut" style="margin:10px 0 6px">Or pick capes from your account (sign in first):</p>
+  <div id="capes"><span class="mut">No capes loaded.</span></div>
+  <div class="row"><button class="g" id="useCapes" disabled>Use selected capes</button></div>
+</section>
+
+<section class="card">
+  <h2>3. Layout</h2>
+  <div class="row">
+    <label>Fit <select id="fit"><option value="cover">Crop to fill</option><option value="contain">Whole image</option><option value="stretch">Stretch</option></select></label>
+  </div>
+  <canvas id="prev" width="104" height="16"></canvas>
+  <p class="mut">Preview of the banner: 9 skins per row like NameMC. The top-left slot is your current skin and stays as it is, so the banner starts one slot later.</p>
+</section>
+
+<section class="card">
+  <h2>4. Your 26 skins</h2>
+  <div id="skins"><span class="mut">Choose an image to generate the skins.</span></div>
+  <p class="mut">Click a skin to download it. NameMC lists the newest skin first, so skins are applied last-tile-first. Your own skin goes back on at the end so it stays in the first slot.</p>
+  <div class="row"><button id="apply" disabled>Apply skin 1 of 26</button><a id="nm" href="https://namemc.com" target="_blank" rel="noopener">Open NameMC</a></div>
+  <p class="mut">Manual: after each skin, open NameMC and refresh your profile so it records that skin, then apply the next one.</p>
+  <div class="row"><label>Delay between skins (seconds) <input type="number" id="delay" value="30" min="10" style="width:70px"></label><button id="auto" disabled>Apply all automatically</button><button id="stop" class="g" disabled>Stop</button></div>
+  <p class="mut">Automatic: applies all 26 in order, then puts your skin back. Keep your NameMC profile open in another tab and refresh it while this runs. NameMC only records skins it sees, so a longer delay is safer.</p>
+</section>
+
+<p class="mut">Setup: put your Azure app client ID in CONFIG at the top of the script, and your Supabase URL and anon key in SUPABASE_URL and SUPABASE_KEY if you want the mailing list. Xbox and Minecraft services block browser requests from other sites, so set PROXY to your own CORS proxy.</p>
+</main>
+
+<script>
+const CONFIG={
+  CLIENT_ID:"YOUR-AZURE-APP-CLIENT-ID",
+  SUPABASE_URL:"", // e.g. https://abcdxyz.supabase.co (leave empty to turn the mailing list off)
+  SUPABASE_KEY:"", // the anon public key
+  PROXY:"" // optional: your CORS proxy prefix, e.g. "https://my-worker.example.workers.dev/?u="
+};
+const $=id=>document.getElementById(id);
+const px=u=>CONFIG.PROXY?CONFIG.PROXY+encodeURIComponent(u):u;
+const REDIR=location.origin+location.pathname;
+const MS="https://login.microsoftonline.com/consumers/oauth2/v2.0/";
+let orig=null,restored=false,mc=null,profile=null,src=null,skins=[],next=25;
+
+function status(m,e){$("status").textContent=m;$("status").className=e?"err":"mut"}
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+
+async function login(){
+  if(CONFIG.CLIENT_ID.startsWith("YOUR"))return status("Add your Azure client ID to CONFIG at the top of the script.",1);
+  const v=b64(crypto.getRandomValues(new Uint8Array(32)));
+  const c=b64(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v)));
+  sessionStorage.v=v;
+  const opt=$("opt").checked&&!!CONFIG.SUPABASE_URL;sessionStorage.opt=opt?"1":"";
+  location.href=MS+"authorize?"+new URLSearchParams({client_id:CONFIG.CLIENT_ID,response_type:"code",redirect_uri:REDIR,scope:"XboxLive.signin offline_access"+(opt?" User.Read":""),code_challenge:c,code_challenge_method:"S256",prompt:"select_account"});
+}
+
+async function post(u,b){
+  const r=await fetch(px(u),{method:"POST",headers:{"Content-Type":"application/json",Accept:"application/json"},body:JSON.stringify(b)});
+  if(!r.ok)throw new Error("Request to "+new URL(u).host+" failed ("+r.status+")");
+  return r.json();
+}
+
+async function finish(code){
+  status("Signing in…");
+  try{
+    const t=await(await fetch(MS+"token",{method:"POST",body:new URLSearchParams({client_id:CONFIG.CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIR,code_verifier:sessionStorage.v,scope:"XboxLive.signin offline_access"})})).json();
+    if(!t.access_token)throw new Error(t.error_description||"Microsoft sign-in failed");
+    const x=await post("https://user.auth.xboxlive.com/user/authenticate",{Properties:{AuthMethod:"RPS",SiteName:"user.auth.xboxlive.com",RpsTicket:"d="+t.access_token},RelyingParty:"http://auth.xboxlive.com",TokenType:"JWT"});
+    const s=await post("https://xsts.auth.xboxlive.com/xsts/authorize",{Properties:{SandboxId:"RETAIL",UserTokens:[x.Token]},RelyingParty:"rp://api.minecraftservices.com/",TokenType:"JWT"});
+    const m=await post("https://api.minecraftservices.com/authentication/login_with_xbox",{identityToken:`XBL3.0 x=${s.DisplayClaims.xui[0].uhs};${s.Token}`});
+    mc=m.access_token;
+    const pr=await fetch(px("https://api.minecraftservices.com/minecraft/profile"),{headers:{Authorization:"Bearer "+mc}});
+    if(!pr.ok)throw new Error("No Minecraft: Java Edition profile found on this account");
+    profile=await pr.json();
+    orig=(profile.skins||[]).find(x=>x.state=="ACTIVE");
+    history.replaceState(0,"",REDIR);
+    status("Signed in as "+profile.name);
+    $("nm").href="https://namemc.com/profile/"+encodeURIComponent(profile.name);
+    showCapes();upd();
+    if(sessionStorage.opt&&CONFIG.SUPABASE_URL)subscribe(t.refresh_token);
+  }catch(e){status(e.message,1)}
+}
+
+async function subscribe(rt){
+  try{
+    const g=await(await fetch(MS+"token",{method:"POST",body:new URLSearchParams({client_id:CONFIG.CLIENT_ID,grant_type:"refresh_token",refresh_token:rt,scope:"https://graph.microsoft.com/User.Read"})})).json();
+    if(!g.access_token)throw 0;
+    const me=await(await fetch("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName",{headers:{Authorization:"Bearer "+g.access_token}})).json();
+    const email=(me.mail||me.userPrincipalName||"").toLowerCase();
+    if(!email.includes("@"))throw 0;
+    const r=await fetch(CONFIG.SUPABASE_URL+"/rest/v1/subscribers?on_conflict=email",{method:"POST",headers:{"Content-Type":"application/json",apikey:CONFIG.SUPABASE_KEY,Authorization:"Bearer "+CONFIG.SUPABASE_KEY,Prefer:"resolution=ignore-duplicates,return=minimal"},body:JSON.stringify({email,minecraft_username:profile.name})});
+    if(!r.ok)throw 0;
+    $("sub").textContent="You're on the mailing list.";
+  }catch(e){$("sub").textContent="Could not add you to the mailing list."}
+  sessionStorage.opt="";
+}
+
+function showCapes(){
+  const box=$("capes");box.innerHTML="";
+  const list=profile.capes||[];
+  if(!list.length)box.innerHTML='<span class="mut">This account has no capes.</span>';
+  list.forEach(c=>{
+    const i=new Image();i.crossOrigin="anonymous";
+    i.onload=()=>{
+      const s=i.width/64,k=document.createElement("canvas");
+      k.width=10*s;k.height=16*s;
+      k.getContext("2d").drawImage(i,s,s,10*s,16*s,0,0,10*s,16*s);
+      const d=document.createElement("div");d.className="cape";d.title=c.alias||"Cape";d._c=k;
+      d.append(k);d.onclick=()=>{d.classList.toggle("on");$("useCapes").disabled=!document.querySelector(".cape.on")};
+      box.append(d);
+    };
+    i.onerror=()=>status("Could not load a cape image.",1);
+    i.src=c.url;
+  });
+}
+
+$("useCapes").onclick=()=>{
+  const sel=[...document.querySelectorAll(".cape.on")].map(d=>d._c);
+  if(!sel.length)return;
+  const c=document.createElement("canvas");c.width=sel.length*12-2;c.height=16;
+  const g=c.getContext("2d");
+  sel.forEach((k,n)=>g.drawImage(k,n*12,0,10,16));
+  src=c;gen();
+};
+
+$("file").onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const i=new Image();
+  i.onload=()=>{const c=document.createElement("canvas");c.width=i.naturalWidth;c.height=i.naturalHeight;c.getContext("2d").drawImage(i,0,0);src=c;gen()};
+  i.src=URL.createObjectURL(f);
+};
+
+function gen(){
+  if(!src)return;
+  const W=72,H=24;
+  const t=$("prev");t.width=W;t.height=H;
+  const g=t.getContext("2d");g.clearRect(0,0,W,H);g.imageSmoothingQuality="high";
+  const fit=$("fit").value;let w=W,h=H;
+  if(fit!="stretch"){const k=(fit=="cover"?Math.max:Math.min)(W/src.width,H/src.height);w=src.width*k;h=src.height*k}
+  g.drawImage(src,(W-w)/2,(H-h)/2,w,h);g.clearRect(0,0,8,8);
+  skins=[];$("skins").innerHTML='<div class="you">Your skin</div>';
+  for(let i=0;i<26;i++){
+    const s=i+1,k=document.createElement("canvas");k.width=k.height=64;
+    k.getContext("2d").drawImage(t,(s%9)*8,Math.floor(s/9)*8,8,8,8,8,8,8);
+    skins.push(k);
+    const th=document.createElement("canvas");th.width=th.height=8;
+    th.getContext("2d").drawImage(k,8,8,8,8,0,0,8,8);
+    th.title="Skin "+(i+1)+" (click to download)";
+    th.onclick=()=>dl(i);
+    $("skins").append(th);
+  }
+  next=25;restored=false;upd();
+}
+
+function dl(i){
+  skins[i].toBlob(b=>{
+    const a=document.createElement("a");a.href=URL.createObjectURL(b);
+    a.download="skinbanner_"+String(i+1).padStart(2,"0")+".png";a.click();
+  });
+}
+
+const SK="https://api.minecraftservices.com/minecraft/profile/skins";
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let stopFlag=false;
+
+async function put(i){
+  for(let a=0;a<4;a++){
+    let r;
+    if(i<0){
+      if(!orig)throw new Error("Could not find your original skin. Set it again in the Minecraft launcher.");
+      r=await fetch(px(SK),{method:"POST",headers:{Authorization:"Bearer "+mc,"Content-Type":"application/json"},body:JSON.stringify({variant:(orig.variant||"CLASSIC").toLowerCase(),url:orig.url})});
+    }else{
+      const b=await new Promise(z=>skins[i].toBlob(z)),f=new FormData();
+      f.append("variant","classic");f.append("file",b,"skin.png");
+      r=await fetch(px(SK),{method:"POST",headers:{Authorization:"Bearer "+mc},body:f});
+    }
+    if(r.status==429){status("Mojang is rate limiting. Waiting to retry…");await sleep(20000*(a+1));continue}
+    if(!r.ok)throw new Error("Skin upload failed ("+r.status+")");
+    return;
+  }
+  throw new Error("Mojang is rate limiting skin changes. Wait a few minutes and try again.");
+}
+
+async function step(){
+  const i=next;
+  await put(i);
+  if(i<0)restored=true;else next--;
+}
+
+function msg(){status(restored?"Done. Refresh NameMC to see the banner.":"Applied "+(25-next)+" of 26.")}
+
+async function apply(){
+  $("apply").disabled=$("auto").disabled=true;
+  try{await step();msg()}catch(e){status(e.message,1)}
+  upd();
+}
+
+async function auto(){
+  stopFlag=false;$("apply").disabled=$("auto").disabled=true;$("stop").disabled=false;
+  const d=Math.max(10,+$("delay").value||30)*1000;
+  try{
+    while(!restored&&!stopFlag){
+      await step();msg();
+      for(let t=0;t<d&&!restored&&!stopFlag;t+=500)await sleep(500);
+    }
+    if(stopFlag)status("Stopped after "+(25-next)+" of 26. Your account is wearing a banner skin until you finish or restore.");
+  }catch(e){status(e.message,1)}
+  $("stop").disabled=true;upd();
+}
+
+function upd(){
+  const done=next<0,off=!mc||!skins.length||restored;
+  $("apply").disabled=$("auto").disabled=off;
+  $("apply").textContent=restored?"Done":done?"Restore your current skin":"Apply skin "+(26-next)+" of 26";
+}
+
+$("login").onclick=login;
+$("apply").onclick=apply;
+$("auto").onclick=auto;
+$("stop").onclick=()=>{stopFlag=true};
+$("fit").onchange=gen;
+const code=new URLSearchParams(location.search).get("code");
+if(code)finish(code);
+</script>
+</body>
+</html>
